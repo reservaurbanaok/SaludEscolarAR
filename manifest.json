@@ -1,0 +1,62 @@
+{
+  "name": "SaludEscolar AR",
+  "short_name": "SaludEscolar",
+  "description": "Sistema de enfermería escolar · Provincia de Buenos Aires",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d2137",
+  "theme_color": "#1a5276",
+  "lang": "es-AR",
+  "categories": ["medical", "education"],
+
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+
+  "screenshots": [
+    {
+      "src": "screenshot-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Panel de enfermería"
+    }
+  ],
+
+  "shortcuts": [
+    {
+      "name": "Registrar evento",
+      "short_name": "Registrar",
+      "description": "Ir directamente al registro de nuevo evento",
+      "url": "/?screen=registro",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Historial de hoy",
+      "short_name": "Historial",
+      "description": "Ver los eventos registrados hoy",
+      "url": "/?screen=historial",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Protocolos",
+      "short_name": "Protocolos",
+      "description": "Consultar protocolos clínicos",
+      "url": "/?screen=protocolos",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
