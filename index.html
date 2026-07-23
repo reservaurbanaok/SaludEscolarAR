@@ -1313,10 +1313,14 @@ async function doLogin(){
       const perfil=await loginReal(email,pass);
       if(!perfil||perfil.activo===false) throw new Error('Perfil inactivo');
       const escuelaAsignada=((perfil.escuelas&&perfil.escuelas.nombre)||'').match(/\d+/)?.[0]||escv;
-      if(escuelaAsignada!==escv) throw new Error('La escuela seleccionada no coincide con el perfil');
+      if(escuelaAsignada!==escv) throw new Error('ESCUELA_NO_COINCIDE');
       pendingLoginData={ user:userInput, u:{rol:perfil.rol,nombre:perfil.nombre_completo,escuela:escuelaAsignada,email}, esc:escuelaAsignada };
       if(perfil.rol==='director'){ openPinOverlay(); } else { completarLogin(pendingLoginData.u,escv); }
-    }catch(e){ err.style.display='block'; err.textContent='Usuario o contraseña incorrectos. Verificá tus datos.'; }
+    }catch(e){
+      if(sessionActual) await logoutReal();
+      err.style.display='block';
+      err.textContent=e&&e.message==='ESCUELA_NO_COINCIDE'?'La cuenta no pertenece a la escuela seleccionada.':'Usuario o contraseña incorrectos. Verificá tus datos.';
+    }
     finally{ btn.textContent='Ingresar al sistema →'; btn.disabled=false; }
   }
 }
