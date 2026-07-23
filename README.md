@@ -172,6 +172,13 @@ Para distribuir la app internamente entre el personal de las escuelas **sin pasa
 La arquitectura, las pruebas entre escuelas y el uso recomendado de
 estadísticas están documentados en `SEGURIDAD_Y_DATOS.md`.
 
+### Estadísticas
+
+El panel, el dashboard avanzado y los informes se calculan directamente desde
+las tablas `eventos` y `alumnos` de Supabase. RLS limita automáticamente cada
+consulta a la escuela del usuario autenticado. Si todavía no hay registros, la
+app muestra indicadores en cero; nunca reemplaza un error con datos demo.
+
 ---
 
 ## 🛠️ Stack tecnológico
@@ -189,10 +196,10 @@ estadísticas están documentados en `SEGURIDAD_Y_DATOS.md`.
 
 ## 📋 Tareas pendientes antes del lanzamiento oficial
 
-- [ ] Confirmar o reemplazar el proyecto Supabase configurado (el hostname actual no resuelve)
-- [ ] Ejecutar `RLS_SaludEscolarAR.sql` en Supabase SQL Editor
+- [x] Confirmar y restaurar el proyecto Supabase configurado
+- [x] Ejecutar `RLS_SaludEscolarAR.sql` en Supabase SQL Editor
 - [ ] Verificar aislamiento con dos usuarios de escuelas diferentes
-- [ ] Confirmar que `fotos-eventos` sea privado y rechace accesos cruzados
+- [x] Confirmar que `fotos-eventos` sea privado
 - [ ] Registrar dominio `saludescolar.ar` en NIC Argentina
 - [ ] Cargar datos reales de alumnos en tabla `alumnos`
 - [ ] Crear usuarios reales en Supabase Auth para todo el personal

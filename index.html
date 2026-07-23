@@ -978,21 +978,28 @@ const periodDataDemo = {
   q2: { label:'Q2 2026 (Abr, en curso)', months:['Abr'], events:[27], total:27, resolved:94, avgAmb:12, derivations:[25,1,1,0], typeLabels:['Heridas','Golpes','Emocional','Cefalea','Gástrico','Asma'], typeData:[8,5,4,3,4,2], grades:[{g:'4°',v:7},{g:'5°',v:6},{g:'3°',v:5},{g:'6°',v:4},{g:'1°',v:3},{g:'2°',v:2}] },
   anual: { label:'Año 2026 (Ene–Abr acumulado)', months:['Ene','Feb','Mar','Abr'], events:[32,38,42,27], total:139, resolved:95, avgAmb:11, derivations:[132,4,2,1], typeLabels:['Heridas','Golpes','Gástrico','Emocional','Cefalea','Asma'], typeData:[39,29,22,18,14,10], grades:[{g:'4°',v:35},{g:'5°',v:30},{g:'3°',v:24},{g:'6°',v:21},{g:'2°',v:15},{g:'1°',v:14},{g:'7°',v:9}] }
 };
-const PERIOD_RANGES = { q1:{desde:'2026-01-01',hasta:'2026-03-31',label:'Q1 2026 (Ene–Mar)'}, q2:{desde:'2026-04-01',hasta:'2026-06-30',label:'Q2 2026 (Abr–Jun)'}, anual:{desde:'2026-01-01',hasta:'2026-12-31',label:'Año 2026'} };
+const REPORT_YEAR = new Date().getFullYear();
+const PERIOD_RANGES = {
+  q1:{desde:`${REPORT_YEAR}-01-01`,hasta:`${REPORT_YEAR}-03-31`,label:`Q1 ${REPORT_YEAR} (Ene–Mar)`},
+  q2:{desde:`${REPORT_YEAR}-04-01`,hasta:`${REPORT_YEAR}-06-30`,label:`Q2 ${REPORT_YEAR} (Abr–Jun)`},
+  anual:{desde:`${REPORT_YEAR}-01-01`,hasta:`${REPORT_YEAR}-12-31`,label:`Año ${REPORT_YEAR}`}
+};
+function emptyPanelData(label){
+  return { label, months:[], events:[], total:0, resolved:0, avgAmb:0, derivations:[0,0,0,0], typeLabels:[], typeData:[], grades:[] };
+}
 let currentPeriod = 'q2';
 let trendChart=null, derivChart=null, typeChart=null, chartsReady=false, panelCargando=false;
 async function fetchPanelData(key){
   if (MODO_DEMO) return periodDataDemo[key];
   if (panelCache[key]) return panelCache[key];
   const { desde, hasta, label } = PERIOD_RANGES[key];
-  const { data, error } = await db.from('eventos').select('fecha, gravedad, derivacion, tipo_evento, hora_llegada_amb, hora_llamado_amb, alumnos(grado)').gte('fecha', desde).lte('fecha', hasta);
+  const { data, error } = await db.from('eventos').select('fecha, gravedad, derivacion, tipo_evento, alumnos(grado)').gte('fecha', desde).lte('fecha', hasta);
   if (error) throw error;
-  if (!data || data.length === 0) return { label, months:[], events:[], total:0, resolved:0, avgAmb:0, derivations:[0,0,0,0], typeLabels:[], typeData:[], grades:[] };
+  if (!data || data.length === 0) return emptyPanelData(label);
   const total = data.length;
   const insitu = data.filter(e => e.derivacion && e.derivacion.toLowerCase().includes('situ')).length;
   const resolved = total > 0 ? Math.round(insitu/total*100) : 0;
-  const tiempos = data.filter(e => e.hora_llegada_amb && e.hora_llamado_amb).map(e => { const [h1,m1]=e.hora_llamado_amb.slice(0,5).split(':').map(Number); const [h2,m2]=e.hora_llegada_amb.slice(0,5).split(':').map(Number); let min=(h2*60+m2)-(h1*60+m1); return min<0?min+1440:min; });
-  const avgAmb = tiempos.length>0 ? Math.round(tiempos.reduce((a,b)=>a+b,0)/tiempos.length) : 0;
+  const avgAmb = 0; // El esquema actual todavía no registra llamada y llegada de emergencias.
   const porMes = {}; data.forEach(e=>{ const mes=e.fecha.slice(0,7); porMes[mes]=(porMes[mes]||0)+1; });
   const mesLabels={'01':'Ene','02':'Feb','03':'Mar','04':'Abr','05':'May','06':'Jun','07':'Jul','08':'Ago','09':'Sep','10':'Oct','11':'Nov','12':'Dic'};
   const mesesOrd = Object.keys(porMes).sort();
@@ -1012,7 +1019,7 @@ async function setPeriod(key, btn){ if (panelCargando) return; currentPeriod=key
 async function cargarPanel(key){
   panelCargando=true; setKPIsLoading();
   try { const d=await fetchPanelData(key); updateKPIs(d); initCharts(key,d); updateGrades(d); }
-  catch(err){ console.error('Error cargando panel:',err); const d=periodDataDemo[key]; updateKPIs(d); initCharts(key,d); updateGrades(d); const sub=document.getElementById('trend-sub'); if(sub) sub.textContent=d.label+' · (datos demo)'; }
+  catch(err){ console.error('Error cargando panel:',err); const d=emptyPanelData(PERIOD_RANGES[key].label); updateKPIs(d); initCharts(key,d); updateGrades(d); const sub=document.getElementById('trend-sub'); if(sub) sub.textContent='No se pudieron cargar los datos reales'; }
   finally { panelCargando=false; }
 }
 function updateKPIs(d){
@@ -1304,7 +1311,10 @@ async function doLogin(){
     try{
       const email=userInput.includes('@')?userInput:userInput+'@saludescolar.ar';
       const perfil=await loginReal(email,pass);
-      pendingLoginData={ user:userInput, u:{rol:perfil.rol,nombre:perfil.nombre_completo,escuela:perfil.escuela_id,email}, esc:escv };
+      if(!perfil||perfil.activo===false) throw new Error('Perfil inactivo');
+      const escuelaAsignada=((perfil.escuelas&&perfil.escuelas.nombre)||'').match(/\d+/)?.[0]||escv;
+      if(escuelaAsignada!==escv) throw new Error('La escuela seleccionada no coincide con el perfil');
+      pendingLoginData={ user:userInput, u:{rol:perfil.rol,nombre:perfil.nombre_completo,escuela:escuelaAsignada,email}, esc:escuelaAsignada };
       if(perfil.rol==='director'){ openPinOverlay(); } else { completarLogin(pendingLoginData.u,escv); }
     }catch(e){ err.style.display='block'; err.textContent='Usuario o contraseña incorrectos. Verificá tus datos.'; }
     finally{ btn.textContent='Ingresar al sistema →'; btn.disabled=false; }
@@ -1374,7 +1384,7 @@ function navTo(id){
   const nb=document.getElementById('nav-'+id); if(nb) nb.classList.add('active');
   if(id==='protocolos') showProtoList();
   if(id==='panel') cargarPanel(currentPeriod);
-  if(id==='dashboard') setTimeout(()=>renderDashTab(activeDashTab),60);
+  if(id==='dashboard') setTimeout(()=>cargarDashboard(),60);
   if(id==='alumnos') renderAlumnosList();
   if(id==='ejecutivo') renderEjecutivoGrades();   /* FIX: renderiza el ranking (antes ${...} literal) */
   if(id==='historial') cargarHistorial();
@@ -1416,7 +1426,7 @@ let pdfSelected=1;
 function openPdfModal(){
   const evHoy=eventosActivos.length;
   const opt2sub=document.querySelector('#pdf-opt2 .pdf-option-sub'); if(opt2sub) opt2sub.textContent=`${evHoy} evento${evHoy!==1?'s':''} del día, listos para imprimir`;
-  const periodoLabel=((panelCache[currentPeriod]||periodDataDemo[currentPeriod])||{}).label||'Período actual';
+  const periodoLabel=((panelCache[currentPeriod]||(MODO_DEMO?periodDataDemo[currentPeriod]:emptyPanelData(PERIOD_RANGES[currentPeriod].label)))||{}).label||'Período actual';
   const opt1title=document.querySelector('#pdf-opt1 .pdf-option-title'); if(opt1title) opt1title.textContent=`Informe — ${periodoLabel}`;
   document.getElementById('pdf-modal').classList.add('open');
   document.getElementById('pdf-progress').style.display='none';
@@ -1436,9 +1446,9 @@ async function generarPdf(){
     const escuela=(usuarioActual&&usuarioActual.escuela_nombre)||(ESCUELAS[(currentUser&&currentUser.escuela)||'42'])||'Escuela N° 42';
     const enfermero=(usuarioActual&&usuarioActual.nombre_completo)||(currentUser&&currentUser.nombre)||'Profesional';
     const hoy=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'});
-    if(pdfSelected===1){ const d=panelCache[currentPeriod]||periodDataDemo[currentPeriod]; html=buildReporteTrimestral(d,escuela,enfermero,hoy); }
-    else if(pdfSelected===2){ html=buildReporteHistorial(eventosActivos.length?eventosActivos:EVENTOS_DEMO,escuela,enfermero,hoy); }
-    else{ const d=panelCache[currentPeriod]||periodDataDemo[currentPeriod]; html=buildReporteTipos(d,escuela,enfermero,hoy); }
+    if(pdfSelected===1){ const d=panelCache[currentPeriod]||(MODO_DEMO?periodDataDemo[currentPeriod]:emptyPanelData(PERIOD_RANGES[currentPeriod].label)); html=buildReporteTrimestral(d,escuela,enfermero,hoy); }
+    else if(pdfSelected===2){ html=buildReporteHistorial(eventosActivos.length?eventosActivos:(MODO_DEMO?EVENTOS_DEMO:[]),escuela,enfermero,hoy); }
+    else{ const d=panelCache[currentPeriod]||(MODO_DEMO?periodDataDemo[currentPeriod]:emptyPanelData(PERIOD_RANGES[currentPeriod].label)); html=buildReporteTipos(d,escuela,enfermero,hoy); }
     clearInterval(tick); fill.style.width='100%'; txt.textContent='¡Listo! Abriendo vista de impresión...';
     await new Promise(r=>setTimeout(r,600));
     const win=window.open('','_blank'); win.document.write(html); win.document.close(); win.focus(); setTimeout(()=>win.print(),500);
@@ -1465,11 +1475,69 @@ function buildReporteTipos(d,escuela,enfermero,hoy){
    DASHBOARD AVANZADO
    ============================================================ */
 let activeDashTab='tendencias', dashChart1=null, dashChart2=null;
-const dashData={
+const dashDataDemo={
   tendencias:{ monthly:{labels:['Ene','Feb','Mar','Abr'],data:[32,38,42,27],prev:[28,30,35,22]}, weekday:{labels:['Lun','Mar','Mié','Jue','Vie'],data:[18,24,31,28,37]} },
   tipos:{ top:[{tipo:'Heridas y cortes',n:39,pct:28,color:'#1a5276'},{tipo:'Golpes/contusiones',n:29,pct:21,color:'#2471a3'},{tipo:'Malestar gástrico',n:22,pct:16,color:'#2980b9'},{tipo:'Crisis emocional',n:18,pct:13,color:'#8e44ad'},{tipo:'Cefalea',n:14,pct:10,color:'#5dade2'},{tipo:'Crisis asmática',n:10,pct:7,color:'#e67e22'},{tipo:'Reacción alérgica',n:4,pct:3,color:'#e74c3c'},{tipo:'Otros',n:3,pct:2,color:'#94a3b8'}], lugares:[{lugar:'Patio descubierto',n:54,pct:39},{lugar:'Aula',n:38,pct:27},{lugar:'Gimnasio / SUM',n:24,pct:17},{lugar:'Comedor',n:12,pct:9},{lugar:'Baño',n:8,pct:6},{lugar:'Escalera',n:3,pct:2}], gravedad:{leve:89,moderada:38,grave:9,emergencia:3}, horario:{labels:['7–8h','8–9h','9–10h','10–11h','11–12h','12–13h','13–14h'],data:[8,18,22,31,26,14,20]} },
   insights:[{tipo:'warn',icon:'⚠️',title:'Patio descubierto: zona de mayor riesgo',body:'39% de los eventos ocurren en el patio. Pico los viernes y en el recreo del mediodía. Reforzar supervisión.'},{tipo:'info',icon:'📈',title:'Tendencia al alza en crisis emocionales',body:'Aumentaron 28% vs Q1 2025. Podría correlacionarse con exámenes. Sugerir protocolo preventivo con el gabinete.'},{tipo:'good',icon:'✅',title:'95% de resolución in situ en el período',body:'Los eventos de baja y moderada complejidad se resolvieron sin derivación. Incluir en el informe trimestral.'},{tipo:'warn',icon:'🚑',title:'Tiempo de respuesta SAME superior al objetivo',body:'El 11% de las llamadas superó los 20 minutos. Objetivo: 100% dentro de 15 min. 3 casos críticos.'},{tipo:'good',icon:'📉',title:'Reducción de traumatismos graves',body:'Cayeron 18% respecto al año pasado. Las charlas de seguridad en Ed. Física muestran impacto positivo.'},{tipo:'info',icon:'🔬',title:'Crisis asmáticas: pico en meses fríos',body:'70% se registraron en junio-agosto. Revisar planes individuales antes del invierno.'}]
 };
+let dashData=dashDataDemo, dashboardCargando=false;
+const DASH_COLORS=['#1a5276','#2471a3','#2980b9','#8e44ad','#5dade2','#e67e22','#e74c3c','#94a3b8'];
+function contarPor(rows, campo, fallback='Sin especificar'){
+  return rows.reduce((acc,row)=>{ const key=(row[campo]||fallback).trim?.()||fallback; acc[key]=(acc[key]||0)+1; return acc; },{});
+}
+function topDistribucion(conteo, total, nombreCampo){
+  return Object.entries(conteo).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([nombre,n],i)=>({[nombreCampo]:nombre,n,pct:total?Math.round(n/total*100):0,color:DASH_COLORS[i%DASH_COLORS.length]}));
+}
+function construirInsights(rows, resumen, lugares){
+  if(!rows.length) return [{tipo:'info',icon:'ℹ️',title:'Todavía no hay eventos registrados',body:'Los indicadores y alertas aparecerán automáticamente cuando el equipo comience a cargar atenciones.'}];
+  const insights=[];
+  const lugarTop=lugares[0];
+  if(lugarTop) insights.push({tipo:'warn',icon:'⚠️',title:`${lugarTop.lugar}: principal lugar de eventos`,body:`Concentra ${lugarTop.pct}% de los registros (${lugarTop.n}). Conviene revisar medidas preventivas en ese sector.`});
+  insights.push({tipo:resumen.resolved>=90?'good':'warn',icon:resumen.resolved>=90?'✅':'📋',title:`${resumen.resolved}% de resolución in situ`,body:`${resumen.derivations[0]} de ${resumen.total} eventos fueron resueltos dentro de la escuela.`});
+  const graves=rows.filter(e=>['grave','emergencia'].includes((e.gravedad||'').toLowerCase())).length;
+  if(graves) insights.push({tipo:'warn',icon:'🚨',title:`${graves} eventos graves o de emergencia`,body:'Revisar los registros, tiempos de respuesta y derivaciones de estos casos.'});
+  if(resumen.avgAmb) insights.push({tipo:resumen.avgAmb<=15?'good':'warn',icon:'🚑',title:`Respuesta promedio de emergencias: ${resumen.avgAmb} min`,body:resumen.avgAmb<=15?'El promedio registrado está dentro del objetivo de 15 minutos.':'El promedio supera el objetivo de 15 minutos; revisar los casos con mayor demora.'});
+  return insights;
+}
+async function fetchDashboardData(){
+  if(MODO_DEMO) return dashDataDemo;
+  const {desde,hasta}=PERIOD_RANGES.anual;
+  const [{data:rows,error:eventError},{count:alumnos,error:alumnosError}]=await Promise.all([
+    db.from('eventos').select('fecha,hora,gravedad,derivacion,tipo_evento,lugar').gte('fecha',desde).lte('fecha',hasta),
+    db.from('alumnos').select('id',{count:'exact',head:true}).eq('activo',true)
+  ]);
+  if(eventError) throw eventError;
+  if(alumnosError) console.warn('No se pudo contar alumnos:',alumnosError);
+  const eventos=rows||[], total=eventos.length;
+  const resumen=await fetchPanelData('anual');
+  const meses=Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0'));
+  const mesLabels=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const porMes=contarPor(eventos.map(e=>({mes:(e.fecha||'').slice(5,7)})),'mes','');
+  const dias=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'], porDia={Lun:0,Mar:0,'Mié':0,Jue:0,Vie:0};
+  eventos.forEach(e=>{ if(e.fecha){ const d=dias[new Date(e.fecha+'T12:00:00').getDay()]; if(Object.hasOwn(porDia,d)) porDia[d]++; } });
+  const top=topDistribucion(contarPor(eventos,'tipo_evento'),total,'tipo');
+  const lugares=topDistribucion(contarPor(eventos,'lugar'),total,'lugar');
+  const gravedad={leve:0,moderada:0,grave:0,emergencia:0};
+  eventos.forEach(e=>{ const g=(e.gravedad||'').toLowerCase(); if(Object.hasOwn(gravedad,g)) gravedad[g]++; });
+  const horarioLabels=['7–8h','8–9h','9–10h','10–11h','11–12h','12–13h','13–14h','14–15h','15–16h','16–17h','17–18h'];
+  const horarioData=new Array(horarioLabels.length).fill(0);
+  eventos.forEach(e=>{ const h=Number((e.hora||'').slice(0,2)); if(h>=7&&h<18) horarioData[h-7]++; });
+  return {
+    total, alumnos:alumnos||0, resolved:resumen.resolved, avgAmb:resumen.avgAmb, derivations:resumen.derivations,
+    tendencias:{monthly:{labels:mesLabels,data:meses.map(m=>porMes[m]||0)},weekday:{labels:Object.keys(porDia),data:Object.values(porDia)}},
+    tipos:{top,lugares,gravedad,horario:{labels:horarioLabels,data:horarioData}},
+    insights:construirInsights(eventos,resumen,lugares)
+  };
+}
+async function cargarDashboard(){
+  if(dashboardCargando) return;
+  dashboardCargando=true;
+  const body=document.getElementById('dash-body');
+  if(body) body.innerHTML='<div style="text-align:center;padding:48px 20px;color:var(--text-secondary)">⏳ Cargando estadísticas reales...</div>';
+  try{ dashData=await fetchDashboardData(); renderDashTab(activeDashTab); }
+  catch(err){ console.error('Error cargando estadísticas:',err); if(body) body.innerHTML='<div style="text-align:center;padding:40px 20px;color:var(--red-text)">No se pudieron cargar las estadísticas reales.<br><button onclick="cargarDashboard()" style="margin-top:14px;padding:9px 18px;border:0;border-radius:9px;background:var(--primary);color:white">Reintentar</button></div>'; }
+  finally{ dashboardCargando=false; }
+}
 function switchDashTab(tab,btn){ activeDashTab=tab; document.querySelectorAll('.dash-tab').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); renderDashTab(tab); }
 function renderDashTab(tab){
   const body=document.getElementById('dash-body'); if(!body) return;
@@ -1478,20 +1546,24 @@ function renderDashTab(tab){
 }
 function renderTendencias(body){
   const d=dashData.tendencias;
-  body.innerHTML=`<div class="dash-section-title">Indicadores clave — 2026</div><div class="dash-kpi-row"><div class="dash-kpi"><div class="dash-kpi-accent" style="background:#1a5276"></div><div class="dash-kpi-icon">📋</div><div class="dash-kpi-num" style="color:#1a5276">139</div><div class="dash-kpi-label">Eventos anuales</div><div class="dash-kpi-sub" style="color:var(--green)">▲ +14% vs 2025</div></div><div class="dash-kpi"><div class="dash-kpi-accent" style="background:#27ae60"></div><div class="dash-kpi-icon">✅</div><div class="dash-kpi-num" style="color:#27ae60">95%</div><div class="dash-kpi-label">Resueltos in situ</div><div class="dash-kpi-sub" style="color:var(--green)">▲ Sobre objetivo</div></div></div><div class="dash-kpi-row"><div class="dash-kpi"><div class="dash-kpi-accent" style="background:#e67e22"></div><div class="dash-kpi-icon">🚑</div><div class="dash-kpi-num" style="color:#e67e22">12<span style="font-size:13px;font-weight:500"> min</span></div><div class="dash-kpi-label">Resp. promedio SAME</div><div class="dash-kpi-sub" style="color:var(--orange)">▲ Objetivo: 15 min</div></div><div class="dash-kpi"><div class="dash-kpi-accent" style="background:#8e44ad"></div><div class="dash-kpi-icon">👧</div><div class="dash-kpi-num" style="color:#8e44ad">480</div><div class="dash-kpi-label">Alumnos a cargo</div><div class="dash-kpi-sub" style="color:var(--text-tertiary)">Escuela N° 42</div></div></div><div class="dash-section-title">Evolución mensual 2026</div><div class="dash-chart-card"><div class="dash-chart-head"><div><div class="dash-chart-title">Eventos por mes</div><div class="dash-chart-sub">Comparativa con 2025</div></div><span class="dash-chart-badge" style="background:var(--blue-bg);color:var(--blue-text)">Ene–Abr</span></div><canvas id="dash-trend-chart" height="140"></canvas></div><div class="dash-section-title">Distribución por día de la semana</div><div class="dash-chart-card"><div class="dash-chart-head"><div><div class="dash-chart-title">Eventos por día</div><div class="dash-chart-sub">Acumulado 2026</div></div><span class="dash-chart-badge" style="background:var(--orange-bg);color:var(--orange-text)">El viernes lidera</span></div><canvas id="dash-weekday-chart" height="120"></canvas></div>`;
+  const total=dashData.total??d.monthly.data.reduce((a,b)=>a+b,0), resolved=dashData.resolved??0, avgAmb=dashData.avgAmb??0, alumnos=dashData.alumnos??0;
+  const picoDia=d.weekday.data.length?d.weekday.labels[d.weekday.data.indexOf(Math.max(...d.weekday.data))]:'—';
+  body.innerHTML=`<div class="dash-section-title">Indicadores clave — ${REPORT_YEAR}</div><div class="dash-kpi-row"><div class="dash-kpi"><div class="dash-kpi-accent" style="background:#1a5276"></div><div class="dash-kpi-icon">📋</div><div class="dash-kpi-num" style="color:#1a5276">${total}</div><div class="dash-kpi-label">Eventos anuales</div><div class="dash-kpi-sub" style="color:var(--text-tertiary)">Datos reales registrados</div></div><div class="dash-kpi"><div class="dash-kpi-accent" style="background:#27ae60"></div><div class="dash-kpi-icon">✅</div><div class="dash-kpi-num" style="color:#27ae60">${resolved}%</div><div class="dash-kpi-label">Resueltos in situ</div><div class="dash-kpi-sub" style="color:var(--text-tertiary)">${total?'Calculado sobre el período':'Sin eventos aún'}</div></div></div><div class="dash-kpi-row"><div class="dash-kpi"><div class="dash-kpi-accent" style="background:#e67e22"></div><div class="dash-kpi-icon">🚑</div><div class="dash-kpi-num" style="color:#e67e22">${avgAmb||'—'}${avgAmb?'<span style="font-size:13px;font-weight:500"> min</span>':''}</div><div class="dash-kpi-label">Resp. promedio emergencias</div><div class="dash-kpi-sub" style="color:var(--text-tertiary)">Objetivo: 15 min</div></div><div class="dash-kpi"><div class="dash-kpi-accent" style="background:#8e44ad"></div><div class="dash-kpi-icon">👧</div><div class="dash-kpi-num" style="color:#8e44ad">${alumnos}</div><div class="dash-kpi-label">Alumnos activos</div><div class="dash-kpi-sub" style="color:var(--text-tertiary)">${esc(escuelaActual?.nombre||'Escuela asignada')}</div></div></div><div class="dash-section-title">Evolución mensual ${REPORT_YEAR}</div><div class="dash-chart-card"><div class="dash-chart-head"><div><div class="dash-chart-title">Eventos por mes</div><div class="dash-chart-sub">Registros del año actual</div></div><span class="dash-chart-badge" style="background:var(--blue-bg);color:var(--blue-text)">Ene–Dic</span></div><canvas id="dash-trend-chart" height="140"></canvas></div><div class="dash-section-title">Distribución por día de la semana</div><div class="dash-chart-card"><div class="dash-chart-head"><div><div class="dash-chart-title">Eventos por día</div><div class="dash-chart-sub">Acumulado ${REPORT_YEAR}</div></div><span class="dash-chart-badge" style="background:var(--orange-bg);color:var(--orange-text)">Pico: ${esc(picoDia)}</span></div><canvas id="dash-weekday-chart" height="120"></canvas></div>`;
   setTimeout(()=>{
     const c1=document.getElementById('dash-trend-chart');
-    if(c1) dashChart1=new Chart(c1,{type:'line',data:{labels:d.monthly.labels,datasets:[{label:'2026',data:d.monthly.data,borderColor:'#1a5276',backgroundColor:'rgba(26,82,118,0.12)',fill:true,tension:0.4,pointBackgroundColor:'#1a5276',pointBorderColor:'#fff',pointBorderWidth:2,pointRadius:5},{label:'2025',data:d.monthly.prev,borderColor:'#94a3b8',backgroundColor:'transparent',fill:false,tension:0.4,borderDash:[4,4],pointRadius:3,pointBackgroundColor:'#94a3b8'}]},options:{responsive:true,maintainAspectRatio:true,animation:{duration:800},plugins:{legend:{position:'top',labels:{font:{size:10,weight:'600'},padding:10,boxWidth:10}},tooltip:{backgroundColor:'#0d2137',padding:10,cornerRadius:8}},scales:{y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.05)'},ticks:{font:{size:10}}},x:{grid:{display:false},ticks:{font:{size:11,weight:'600'}}}}}});
+    if(c1) dashChart1=new Chart(c1,{type:'line',data:{labels:d.monthly.labels,datasets:[{label:String(REPORT_YEAR),data:d.monthly.data,borderColor:'#1a5276',backgroundColor:'rgba(26,82,118,0.12)',fill:true,tension:0.4,pointBackgroundColor:'#1a5276',pointBorderColor:'#fff',pointBorderWidth:2,pointRadius:5}]},options:{responsive:true,maintainAspectRatio:true,animation:{duration:800},plugins:{legend:{display:false},tooltip:{backgroundColor:'#0d2137',padding:10,cornerRadius:8}},scales:{y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.05)'},ticks:{font:{size:10}}},x:{grid:{display:false},ticks:{font:{size:11,weight:'600'}}}}}});
     const c2=document.getElementById('dash-weekday-chart');
     if(c2) dashChart2=new Chart(c2,{type:'bar',data:{labels:d.weekday.labels,datasets:[{data:d.weekday.data,backgroundColor:['#aed6f1','#aed6f1','#2980b9','#1a5276','#0d2137'],borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:true,animation:{duration:800},plugins:{legend:{display:false},tooltip:{backgroundColor:'#0d2137',padding:8,cornerRadius:8,callbacks:{label:ctx=>' '+ctx.raw+' eventos'}}},scales:{y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.05)'},ticks:{font:{size:10}}},x:{grid:{display:false},ticks:{font:{size:11,weight:'600'}}}}}});
   },80);
 }
 function renderTipos(body){
   const d=dashData.tipos; const gravTotal=(d.gravedad.leve+d.gravedad.moderada+d.gravedad.grave+d.gravedad.emergencia)||1;
-  body.innerHTML=`<div class="dash-section-title">Eventos por tipo</div><div class="dash-chart-card"><div class="dash-chart-head"><div><div class="dash-chart-title">Ranking de eventos</div><div class="dash-chart-sub">Acumulado 2026 · 139 eventos</div></div></div>${d.top.map(t=>`<div class="dash-hbar-row"><div class="dash-hbar-label">${esc(t.tipo)}</div><div class="dash-hbar-track"><div class="dash-hbar-fill" style="width:${t.pct*3.2}%;background:${t.color}"><span class="dash-hbar-num">${t.n}</span></div></div><div style="font-size:10px;font-weight:700;color:var(--text-secondary);width:28px;text-align:right;flex-shrink:0">${t.pct}%</div></div>`).join('')}</div><div class="dash-section-title">Por lugar del hecho</div><div class="dash-chart-card">${d.lugares.map(l=>`<div class="dash-hbar-row"><div class="dash-hbar-label">${esc(l.lugar)}</div><div class="dash-hbar-track"><div class="dash-hbar-fill" style="width:${l.pct*2.4}%;background:#2471a3"><span class="dash-hbar-num">${l.n}</span></div></div><div style="font-size:10px;font-weight:700;color:var(--text-secondary);width:28px;text-align:right;flex-shrink:0">${l.pct}%</div></div>`).join('')}</div><div class="dash-section-title">Distribución por gravedad</div><div class="dash-chart-card"><canvas id="dash-grav-chart" height="200"></canvas></div><div class="dash-section-title">Horario de mayor incidencia</div><div class="dash-chart-card"><div class="dash-chart-head"><div><div class="dash-chart-title">Franja horaria</div><div class="dash-chart-sub">Pico entre las 10 y 11 hs</div></div><span class="dash-chart-badge" style="background:var(--red-bg);color:var(--red-text)">Recreo peligroso</span></div><canvas id="dash-hora-chart" height="120"></canvas></div>`;
+  const total=dashData.total??gravTotal, picoIndex=d.horario.data.indexOf(Math.max(...d.horario.data)), pico=d.horario.data[picoIndex]>0?d.horario.labels[picoIndex]:'—';
+  const vacio='<div style="padding:16px;text-align:center;color:var(--text-secondary);font-size:12px">Sin datos registrados para este análisis.</div>';
+  body.innerHTML=`<div class="dash-section-title">Eventos por tipo</div><div class="dash-chart-card"><div class="dash-chart-head"><div><div class="dash-chart-title">Ranking de eventos</div><div class="dash-chart-sub">Acumulado ${REPORT_YEAR} · ${total} eventos</div></div></div>${d.top.length?d.top.map(t=>`<div class="dash-hbar-row"><div class="dash-hbar-label">${esc(t.tipo)}</div><div class="dash-hbar-track"><div class="dash-hbar-fill" style="width:${Math.min(100,t.pct*3.2)}%;background:${t.color}"><span class="dash-hbar-num">${t.n}</span></div></div><div style="font-size:10px;font-weight:700;color:var(--text-secondary);width:28px;text-align:right;flex-shrink:0">${t.pct}%</div></div>`).join(''):vacio}</div><div class="dash-section-title">Por lugar del hecho</div><div class="dash-chart-card">${d.lugares.length?d.lugares.map(l=>`<div class="dash-hbar-row"><div class="dash-hbar-label">${esc(l.lugar)}</div><div class="dash-hbar-track"><div class="dash-hbar-fill" style="width:${Math.min(100,l.pct*2.4)}%;background:#2471a3"><span class="dash-hbar-num">${l.n}</span></div></div><div style="font-size:10px;font-weight:700;color:var(--text-secondary);width:28px;text-align:right;flex-shrink:0">${l.pct}%</div></div>`).join(''):vacio}</div><div class="dash-section-title">Distribución por gravedad</div><div class="dash-chart-card"><canvas id="dash-grav-chart" height="200"></canvas></div><div class="dash-section-title">Horario de mayor incidencia</div><div class="dash-chart-card"><div class="dash-chart-head"><div><div class="dash-chart-title">Franja horaria</div><div class="dash-chart-sub">Calculado con los horarios registrados</div></div><span class="dash-chart-badge" style="background:var(--red-bg);color:var(--red-text)">Pico: ${esc(pico)}</span></div><canvas id="dash-hora-chart" height="120"></canvas></div>`;
   setTimeout(()=>{
     const g=document.getElementById('dash-grav-chart');
-    if(g) dashChart1=new Chart(g,{type:'doughnut',data:{labels:['Leve','Moderada','Grave','Emergencia'],datasets:[{data:[d.gravedad.leve,d.gravedad.moderada,d.gravedad.grave,d.gravedad.emergencia],backgroundColor:['#27ae60','#f39c12','#e67e22','#e74c3c'],borderWidth:2,borderColor:'#fff',hoverOffset:4}]},options:{responsive:true,cutout:'62%',animation:{duration:800},plugins:{legend:{position:'bottom',labels:{font:{size:10,weight:'600'},padding:10,boxWidth:10}},tooltip:{backgroundColor:'#0d2137',padding:8,cornerRadius:8,callbacks:{label:ctx=>' '+ctx.raw+' ('+Math.round(ctx.raw/gravTotal*100)+'%)'}}}},plugins:[{id:'ct2',afterDraw(chart){const {ctx,chartArea:{width,height,left,top}}=chart;ctx.save();ctx.font='700 20px Outfit,sans-serif';ctx.fillStyle='#1a5276';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('139',left+width/2,top+height/2-7);ctx.font='500 9px DM Sans,sans-serif';ctx.fillStyle='#94a3b8';ctx.fillText('eventos',left+width/2,top+height/2+9);ctx.restore();}}]});
+    if(g) dashChart1=new Chart(g,{type:'doughnut',data:{labels:['Leve','Moderada','Grave','Emergencia'],datasets:[{data:[d.gravedad.leve,d.gravedad.moderada,d.gravedad.grave,d.gravedad.emergencia],backgroundColor:['#27ae60','#f39c12','#e67e22','#e74c3c'],borderWidth:2,borderColor:'#fff',hoverOffset:4}]},options:{responsive:true,cutout:'62%',animation:{duration:800},plugins:{legend:{position:'bottom',labels:{font:{size:10,weight:'600'},padding:10,boxWidth:10}},tooltip:{backgroundColor:'#0d2137',padding:8,cornerRadius:8,callbacks:{label:ctx=>' '+ctx.raw+' ('+Math.round(ctx.raw/gravTotal*100)+'%)'}}}},plugins:[{id:'ct2',afterDraw(chart){const {ctx,chartArea:{width,height,left,top}}=chart;ctx.save();ctx.font='700 20px Outfit,sans-serif';ctx.fillStyle='#1a5276';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(String(total),left+width/2,top+height/2-7);ctx.font='500 9px DM Sans,sans-serif';ctx.fillStyle='#94a3b8';ctx.fillText('eventos',left+width/2,top+height/2+9);ctx.restore();}}]});
     const h=document.getElementById('dash-hora-chart');
     if(h) dashChart2=new Chart(h,{type:'bar',data:{labels:d.horario.labels,datasets:[{data:d.horario.data,backgroundColor:d.horario.data.map(v=>v===Math.max(...d.horario.data)?'#e74c3c':'#5dade2'),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:true,animation:{duration:800},plugins:{legend:{display:false},tooltip:{backgroundColor:'#0d2137',padding:8,cornerRadius:8,callbacks:{label:ctx=>' '+ctx.raw+' eventos'}}},scales:{y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.05)'},ticks:{font:{size:10}}},x:{grid:{display:false},ticks:{font:{size:10,weight:'600'}}}}}});
   },80);
@@ -1582,7 +1654,7 @@ function closeFicha(){ const d=document.getElementById('ficha-detail-view'); d.c
    INIT
    ============================================================ */
 renderProtocols();
-updateKPIs(periodDataDemo[currentPeriod]);
+updateKPIs(MODO_DEMO?periodDataDemo[currentPeriod]:emptyPanelData(PERIOD_RANGES[currentPeriod].label));
 (function(){ const f=document.getElementById('f-fecha'), h=document.getElementById('f-hora'); if(f) f.value=new Date().toISOString().split('T')[0]; if(h) h.value=new Date().toTimeString().slice(0,5); })();
 /* Splash → login. FIX: limpia TODAS las pantallas activas antes de mostrar login
    (antes quedaban splash + panel activos a la vez → se veía el panel debajo del login). */
