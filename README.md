@@ -167,7 +167,10 @@ Para distribuir la app internamente entre el personal de las escuelas **sin pasa
 
 | Bucket          | Uso                                        |
 |-----------------|--------------------------------------------|
-| `fotos-eventos` | Imágenes adjuntas a registros de eventos   |
+| `fotos-eventos` | Imágenes privadas; acceso temporal mediante URL firmada |
+
+La arquitectura, las pruebas entre escuelas y el uso recomendado de
+estadísticas están documentados en `SEGURIDAD_Y_DATOS.md`.
 
 ---
 
@@ -186,7 +189,10 @@ Para distribuir la app internamente entre el personal de las escuelas **sin pasa
 
 ## 📋 Tareas pendientes antes del lanzamiento oficial
 
+- [ ] Confirmar o reemplazar el proyecto Supabase configurado (el hostname actual no resuelve)
 - [ ] Ejecutar `RLS_SaludEscolarAR.sql` en Supabase SQL Editor
+- [ ] Verificar aislamiento con dos usuarios de escuelas diferentes
+- [ ] Confirmar que `fotos-eventos` sea privado y rechace accesos cruzados
 - [ ] Registrar dominio `saludescolar.ar` en NIC Argentina
 - [ ] Cargar datos reales de alumnos en tabla `alumnos`
 - [ ] Crear usuarios reales en Supabase Auth para todo el personal

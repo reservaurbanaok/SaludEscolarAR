@@ -957,9 +957,16 @@ async function safeGuardarEvento(datos){
 }
 async function safeSubirFoto(file, eventoId){
   if (MODO_DEMO) return URL.createObjectURL(file);
-  const ext = file.name.split('.').pop(); const path = usuarioActual.escuela_id + '/' + eventoId + '/' + Date.now() + '.' + ext;
+  const ext = (file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const path = usuarioActual.escuela_id + '/' + eventoId + '/' + crypto.randomUUID() + '.' + ext;
   const { error } = await db.storage.from('fotos-eventos').upload(path, file); if (error) throw error;
-  const { data: { publicUrl } } = db.storage.from('fotos-eventos').getPublicUrl(path); return publicUrl;
+  return path;
+}
+async function safeUrlFotoPrivada(path, expiresIn=300){
+  if (MODO_DEMO || !path) return path;
+  const { data, error } = await db.storage.from('fotos-eventos').createSignedUrl(path, expiresIn);
+  if (error) throw error;
+  return data.signedUrl;
 }
 console.log(MODO_DEMO ? '🟡 MODO DEMO activo' : '🟢 SUPABASE conectado — modo producción');
 /* ============================================================
@@ -1171,7 +1178,17 @@ async function guardarEvento(){
     };
     const resultado=await safeGuardarEvento(datos);
     const codigo=resultado.codigo||resultado.id||('EVT-'+new Date().getFullYear()+'-'+String(Math.floor(Math.random()*9000)+1000));
-    if(!MODO_DEMO && fotoFiles.length){ for(const f of fotoFiles){ try{ await safeSubirFoto(f,resultado.id||codigo); }catch(err){ console.error('Error subiendo foto:',err); } } }
+    if(!MODO_DEMO && fotoFiles.length){
+      const fotosPaths=[];
+      for(const f of fotoFiles){
+        try{ fotosPaths.push(await safeSubirFoto(f,resultado.id||codigo)); }
+        catch(err){ console.error('Error subiendo foto:',err); }
+      }
+      if(fotosPaths.length){
+        const { error:fotosError }=await db.from('eventos').update({fotos_urls:fotosPaths}).eq('id',resultado.id);
+        if(fotosError) console.error('Error vinculando fotos al evento:',fotosError);
+      }
+    }
     document.getElementById('evento-id').textContent=codigo;
     document.querySelectorAll('.reg-section').forEach(s=>s.classList.remove('active'));
     document.getElementById('step-indicator').style.display='none';
